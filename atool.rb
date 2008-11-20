@@ -6,8 +6,7 @@ raise 'Usage: atool <file>' if exe.nil?
 
 
 parse_lines = proc do |line|
-  matches = line.match /^([0-9a-f]+)  __TEXT:__cstring:(.+)$/
-  [matches[1].to_sym, matches[2]] if not matches.nil?
+  [$1.to_sym, $2] if line =~ /^([0-9a-f]+)\s+__TEXT:__cstring:(.+)$/
 end
 
 create_hash_from_lines = proc do |hsh, match|
@@ -16,12 +15,35 @@ create_hash_from_lines = proc do |hsh, match|
 end
 
 
-methods = `otool -v -s __OBJC __message_refs '#{exe}'`
-puts methods.lines.map(&parse_lines).inject(Hash.new, &create_hash_from_lines).inspect
+methods = `otool -v -s __OBJC __message_refs '#{exe}'`.
+  lines.
+  map(&parse_lines).
+  inject(Hash.new, &create_hash_from_lines)
+
+classes = `otool -v -s __OBJC __cls_refs '#{exe}'`.
+  lines.
+  map(&parse_lines).
+  inject(Hash.new, &create_hash_from_lines)
 
 
-
-
-
-# classes = `otool -v -s __OBJC __cls_refs '#{exe}'`
-
+# put it all together
+`otool -tV '#{exe}'`.lines.
+  map do |line|
+    attach = ''
+    if line =~ /movl.+0x([0-9a-f]{8})/
+      key = $1.to_sym
+      # [42 - line.size, 2].min
+      
+      attach = if classes[key]
+        "   ; class #{classes[key]}"
+      elsif methods[key]
+        "   ; method #{methods[key]}"
+      else
+        ''
+      end
+    end
+    line.chop + attach + "\n"
+    
+  end.each do |patched_line|
+    puts patched_line
+  end
