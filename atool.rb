@@ -39,6 +39,7 @@ gdb_stdin, gdb_stdout, gdb_stderr = Open3.popen3(
 # send this 2 commands
 gdb_stdin.puts('break main')
 gdb_stdin.puts('run')
+gdb_stdin.puts('set prompt')
 
 # then read all output until we get an empty prompt
 loop do
@@ -98,19 +99,21 @@ end
       # $stderr.puts gdb_says
       
       if gdb_says =~ /__CFConstantStringClassReference/
-        gdb_stdin.puts "call (void)NSLog(@\":%@\", #{addr})"
-        gdb_says = gdb_stdout.gets
+        gdb_stdin.puts "call (void)NSLog(@\"_:%@:_EOLOG\", #{addr})"
+        gdb_says = gdb_stdout.readpartial(1024*1024*2)
         
         # $stderr.puts gdb_says
         
-        if gdb_says =~ /.......... ............ .+\[.+\] :(.*)$/
-          "#{line.chop} ;; log: \"#{$1}\" (#{addr})\n"
+        if gdb_says =~ /.......... ............ .+\[.+\] _:(.*):_EOLOG$/m
+          "#{line.chop} ; #{$1.inspect} (#{addr})\n"
         else
-          "#{line.chop} ;; !log: \"#{gdb_says}\" (#{addr})\n"
+          # "#{line.chop} ;; !log: \"#{gdb_says}\" (#{addr})\n"
+          line
         end
         
       else
-        "#{line.chop} ;; !str: \"#{gdb_says.chop}\" (#{addr})\n"
+        # "#{line.chop} ;; !str: \"#{gdb_says.chop}\" (#{addr})\n"
+        line
         
       end
       
