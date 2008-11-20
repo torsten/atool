@@ -28,19 +28,91 @@ classes = `otool -v -s __OBJC __cls_refs '#{exe}'`.
   inject(Hash.new, &create_hash_from_lines)
 
 
+# use this to decode c++ symbols
 filt_stdin, filt_stdout, filt_stderr = Open3.popen3('c++filt')
+
+# fire up gdb to decode string references
+gdb_stdin, gdb_stdout, gdb_stderr = Open3.popen3(
+  "gdb -silent '#{exe}' 2>&1")
+
+# ok, initializing a gdb is a bit more complicated
+# send this 2 commands
+gdb_stdin.puts('break main')
+gdb_stdin.puts('run')
+
+# then read all output until we get an empty prompt
+loop do
+  begin
+    buff = gdb_stdout.read_nonblock(2048)
+    $stderr.puts "<<#{buff}>>"
+    break if buff =~ /\(gdb\) $/m
+  rescue Errno::EAGAIN
+    sleep 1
+  end
+end
+
+# gdb_stdin.puts "x /s *0x0002cc21"
+# puts gdb_stdout.gets
+# 
+# exit
+
+
+# (gdb) call (void)NSLog(@"%@", 0x0002cc2c)
+# 2008-11-20 20:33:11.216 Twitterrific[2592:817] IFDeckAdConnection: refresh
+# (gdb) x /s *0x0002cc2c
+# 0xa07324a0 <__CFConstantStringClassReference>:   "`i-??$-?D\003H?"
+
 
 
 # put it all together
 `otool -tV '#{exe}'`.lines.
-  map do |line|
-    if line =~ /^__.+:$/
+  each do |line|
+    hrhr = if line =~ /^__.+:$/
       filt_stdin.puts line
-      "#{filt_stdout.gets.chop}\n#{line}"
+      got_line = filt_stdout.gets
+      
+      if got_line != line
+        "#{got_line.chop}\n#{line}"
+      else
+        
+        line
+      end
       
     elsif line =~ /calll\s+(__.+)$/
       filt_stdin.puts $1
-      "; #{filt_stdout.gets.chop}\n#{line}"
+      got_line = filt_stdout.gets
+      
+      if got_line.chop != $1
+        "; #{got_line.chop}\n#{line}"
+      else
+        line
+      end
+      
+    elsif line =~ /\$(0x[0-9a-f]{8})/
+      addr = $1
+      # $stderr.puts addr
+      
+      gdb_stdin.puts "x /x *#{addr}"
+      gdb_says = gdb_stdout.gets
+
+      # $stderr.puts gdb_says
+      
+      if gdb_says =~ /__CFConstantStringClassReference/
+        gdb_stdin.puts "call (void)NSLog(@\":%@\", #{addr})"
+        gdb_says = gdb_stdout.gets
+        
+        # $stderr.puts gdb_says
+        
+        if gdb_says =~ /.......... ............ .+\[.+\] :(.*)$/
+          "#{line.chop} ;; log: \"#{$1}\" (#{addr})\n"
+        else
+          "#{line.chop} ;; !log: \"#{gdb_says}\" (#{addr})\n"
+        end
+        
+      else
+        "#{line.chop} ;; !str: \"#{gdb_says.chop}\" (#{addr})\n"
+        
+      end
       
     elsif line =~ /movl.+0x([0-9a-f]{8})/
       key = $1.to_sym
@@ -59,9 +131,9 @@ filt_stdin, filt_stdout, filt_stderr = Open3.popen3('c++filt')
       line
     end
     
-  end.each do |patched_line|
-    puts patched_line
+    puts hrhr
   end
 
 
 filt_stdin.close
+gdb_stdin.close
