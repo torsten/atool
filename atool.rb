@@ -22,11 +22,12 @@
 #
 # atool.rb, created on 2008-Nov-20.
 
+raise 'atool just runs with ruby-1.8.7 or higher' if RUBY_VERSION < '1.8.7'
+
 require 'open3'
 
 
 exe = $*.first
-
 raise 'Usage: atool <file>' if exe.nil?
 
 
@@ -87,7 +88,6 @@ end
       if got_line != line
         "#{got_line.chop}\n#{line}"
       else
-        
         line
       end
       
