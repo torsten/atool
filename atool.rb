@@ -1,4 +1,6 @@
 #!/usr/bin/env ruby
+require 'open3'
+
 
 exe = $*.first
 
@@ -26,24 +28,40 @@ classes = `otool -v -s __OBJC __cls_refs '#{exe}'`.
   inject(Hash.new, &create_hash_from_lines)
 
 
+filt_stdin, filt_stdout, filt_stderr = Open3.popen3('c++filt')
+
+
 # put it all together
 `otool -tV '#{exe}'`.lines.
   map do |line|
-    attach = ''
-    if line =~ /movl.+0x([0-9a-f]{8})/
+    if line =~ /^__.+:$/
+      filt_stdin.puts line
+      "#{filt_stdout.gets.chop}\n#{line}"
+      
+    elsif line =~ /calll\s+(__.+)$/
+      filt_stdin.puts $1
+      "; #{filt_stdout.gets.chop}\n#{line}"
+      
+    elsif line =~ /movl.+0x([0-9a-f]{8})/
       key = $1.to_sym
-      # [42 - line.size, 2].min
       
       attach = if classes[key]
-        "   ; class #{classes[key]}"
+        " ; #{classes[key]}"
       elsif methods[key]
-        "   ; method #{methods[key]}"
+        " ; -[#{methods[key]}]"
       else
         ''
       end
+      
+      line.chop + attach + "\n"
+      
+    else
+      line
     end
-    line.chop + attach + "\n"
     
   end.each do |patched_line|
     puts patched_line
   end
+
+
+filt_stdin.close
