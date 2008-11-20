@@ -52,20 +52,20 @@ classes = `otool -v -s __OBJC __cls_refs '#{exe}'`.
   inject(Hash.new, &create_hash_from_lines)
 
 
-# use this to decode c++ symbols
+# Use this to decode C++ symbols
 filt_stdin, filt_stdout, filt_stderr = Open3.popen3('c++filt')
 
-# fire up gdb to decode string references
+# Fire up gdb to decode string references
 gdb_stdin, gdb_stdout, gdb_stderr = Open3.popen3(
   "gdb -silent '#{exe}' 2>&1")
 
-# ok, initializing a gdb is a bit more complicated
-# send this 3 commands
+# OK, initializing gdb is a bit more complicated...
+# Send this 3 commands
 gdb_stdin.puts('break main')
 gdb_stdin.puts('run')
 gdb_stdin.puts('set prompt')
 
-# then read all output until we get an empty prompt
+# Then read all output until we get an empty prompt
 loop do
   begin
     buff = gdb_stdout.read_nonblock(2048)
@@ -77,11 +77,14 @@ loop do
 end
 
 
-
-# put it all together
+# Put it all together
 `otool -tV '#{exe}'`.lines.
   each do |line|
-    hrhr = if line =~ /^__.+:$/
+    
+    enhanced_line =
+    
+    # Decode C++ symbols
+    if line =~ /^__.+:$/
       filt_stdin.puts line
       got_line = filt_stdout.gets
       
@@ -90,7 +93,8 @@ end
       else
         line
       end
-      
+    
+    # Decode C++ call and insert a comment before the line
     elsif line =~ /calll\s+(__.+)$/
       filt_stdin.puts $1
       got_line = filt_stdout.gets
@@ -101,6 +105,7 @@ end
         line
       end
       
+    # This is how string references usually look like
     elsif line =~ /\$(0x[0-9a-f]{8})/
       addr = $1
       # $stderr.puts addr
@@ -110,7 +115,9 @@ end
 
       # $stderr.puts gdb_says
       
-      if gdb_says =~ /__CFConstantStringClassReference/
+      # If gdb found a string reference there
+      if gdb_says =~ /__CFConstantStringClassReference\>/
+        # Call NSLog to print the string
         gdb_stdin.puts "call (void)NSLog(@\"_:%@:_EOLOG\", #{addr})"
         
         # 2MB "should" be enough ;)
@@ -121,8 +128,7 @@ end
         if gdb_says =~ /.......... ............ .+\[.+\] _:(.*):_EOLOG$/m
           "#{line.chop} ; #{$1.inspect}\n"
         else
-          # "#{line.chop} ;; !log: \"#{gdb_says}\" (#{addr})\n"
-          line
+          "#{line.chop} ; #{gdb_says}\n"
         end
         
       else
@@ -130,7 +136,8 @@ end
         line
         
       end
-      
+    
+    # This is the usual pattern for a class or method reference
     elsif line =~ /movl.+0x([0-9a-f]{8})/
       key = $1.to_sym
       
@@ -148,7 +155,7 @@ end
       line
     end
     
-    puts hrhr
+    puts enhanced_line
   end
 
 
