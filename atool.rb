@@ -1,4 +1,27 @@
 #!/usr/bin/env ruby
+
+# Copyright (C) 2008 Torsten Becker <torsten.becker@gmail.com>.
+# All rights reserved.
+# 
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to
+# deal in the Software without restriction, including without limitation the
+# rights to use, copy, modify, merge, publish, distribute, sublicense, and/or
+# sell copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+# 
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+# 
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
+# THE AUTHORS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER 
+# IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+# CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+#
+# atool.rb, created on 2008-Nov-20.
+
 require 'open3'
 
 
@@ -36,7 +59,7 @@ gdb_stdin, gdb_stdout, gdb_stderr = Open3.popen3(
   "gdb -silent '#{exe}' 2>&1")
 
 # ok, initializing a gdb is a bit more complicated
-# send this 2 commands
+# send this 3 commands
 gdb_stdin.puts('break main')
 gdb_stdin.puts('run')
 gdb_stdin.puts('set prompt')
@@ -51,17 +74,6 @@ loop do
     sleep 1
   end
 end
-
-# gdb_stdin.puts "x /s *0x0002cc21"
-# puts gdb_stdout.gets
-# 
-# exit
-
-
-# (gdb) call (void)NSLog(@"%@", 0x0002cc2c)
-# 2008-11-20 20:33:11.216 Twitterrific[2592:817] IFDeckAdConnection: refresh
-# (gdb) x /s *0x0002cc2c
-# 0xa07324a0 <__CFConstantStringClassReference>:   "`i-??$-?D\003H?"
 
 
 
@@ -100,12 +112,14 @@ end
       
       if gdb_says =~ /__CFConstantStringClassReference/
         gdb_stdin.puts "call (void)NSLog(@\"_:%@:_EOLOG\", #{addr})"
+        
+        # 2MB "should" be enough ;)
         gdb_says = gdb_stdout.readpartial(1024*1024*2)
         
         # $stderr.puts gdb_says
         
         if gdb_says =~ /.......... ............ .+\[.+\] _:(.*):_EOLOG$/m
-          "#{line.chop} ; #{$1.inspect} (#{addr})\n"
+          "#{line.chop} ; #{$1.inspect}\n"
         else
           # "#{line.chop} ;; !log: \"#{gdb_says}\" (#{addr})\n"
           line
