@@ -59,10 +59,7 @@ filt_stdin, filt_stdout, filt_stderr = Open3.popen3('c++filt')
 gdb_stdin, gdb_stdout, gdb_stderr = Open3.popen3(
   "gdb -silent '#{exe}' 2>&1")
 
-# OK, initializing gdb is a bit more complicated...
-# Send this 3 commands
-gdb_stdin.puts('break main')
-gdb_stdin.puts('run')
+# Set an empty prompt
 gdb_stdin.puts('set prompt')
 
 # Then read all output until we get an empty prompt
@@ -108,27 +105,24 @@ end
     # This is how string references usually look like
     elsif line =~ /\$(0x[0-9a-f]{8})/
       addr = $1
-      # $stderr.puts addr
       
-      gdb_stdin.puts "x /x *#{addr}"
+      gdb_stdin.puts "x /x (#{addr}+4)"
       gdb_says = gdb_stdout.gets
-
+      
+      # $stderr.puts addr
       # $stderr.puts gdb_says
       
-      # If gdb found a string reference there
-      if gdb_says =~ /__CFConstantStringClassReference\>/
-        # Call NSLog to print the string
-        gdb_stdin.puts "call (void)NSLog(@\"_:%@:_EOLOG\", #{addr})"
-        
-        # 2MB "should" be enough ;)
-        gdb_says = gdb_stdout.readpartial(1024*1024*2)
+      # This seems to be the signature for a string :>
+      if gdb_says =~ /0x000007c8$/
+        gdb_stdin.puts "x /s *(#{addr}+8)"
+        gdb_says = gdb_stdout.gets
         
         # $stderr.puts gdb_says
         
-        if gdb_says =~ /.......... ............ .+\[.+\] _:(.*):_EOLOG$/m
-          "#{line.chop} ; #{$1.inspect}\n"
+        if gdb_says =~ /\>:\s+(".*"(\.\.\.)?)$/
+          "#{line.chop} ; #{$1}\n"
         else
-          "#{line.chop} ; #{gdb_says}\n"
+          "#{line.chop} ; (gdb) #{gdb_says}\n"
         end
         
       else
