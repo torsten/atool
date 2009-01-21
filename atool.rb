@@ -73,7 +73,7 @@ end
 # This is how to decode/enhance a single line
 enhance_line = proc do |line|
   
-  enhanced_line =
+  new_line =
   
   # Decode C++ symbols
   if line =~ /^__.+:$/
@@ -96,7 +96,26 @@ enhance_line = proc do |line|
     else
       line
     end
+  
+  # Resolve unnamed symbols using gdb and then try to decode the line again
+  elsif line =~ /^([0-9a-f]{8}).+\$__unnamed\w+/
+    addr = $1
     
+    gdb_stdin.puts "x /i 0x#{addr}"
+    gdb_says = gdb_stdout.gets
+    
+    # Example result: 0x3133 <-[...:]+39>:	movl   $0xe3828,0x8(%esp)
+    
+    if gdb_says =~ /\$0x([0-9a-f]+)/
+      replacement = "$0x#{'0' * (8 - $1.size) + $1}"
+      # Recursion:
+      enhance_line.call(line.gsub(/\$__unnamed\w+/, replacement))
+      nil
+      
+    else
+      line
+    end
+  
   # This is how string references usually look like
   elsif line =~ /\$(0x[0-9a-f]{8})/
     addr = $1
@@ -144,7 +163,7 @@ enhance_line = proc do |line|
     line
   end
   
-  puts enhanced_line
+  puts new_line unless new_line.nil?
   
 end
 
