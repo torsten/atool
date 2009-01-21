@@ -41,23 +41,19 @@ create_hash_from_lines = proc do |hsh, match|
 end
 
 
+# Create the lookup hashes for methods and classes to resolve plain addresses
 methods = `otool -v -s __OBJC __message_refs '#{exe}'`.
-  lines.
-  map(&parse_lines).
-  inject(Hash.new, &create_hash_from_lines)
+  lines.map(&parse_lines).inject(Hash.new, &create_hash_from_lines)
 
 classes = `otool -v -s __OBJC __cls_refs '#{exe}'`.
-  lines.
-  map(&parse_lines).
-  inject(Hash.new, &create_hash_from_lines)
+  lines.map(&parse_lines).inject(Hash.new, &create_hash_from_lines)
 
 
 # Use this to decode C++ symbols
 filt_stdin, filt_stdout, filt_stderr = Open3.popen3('c++filt')
 
 # Fire up gdb to decode string references
-gdb_stdin, gdb_stdout, gdb_stderr = Open3.popen3(
-  "gdb -silent '#{exe}' 2>&1")
+gdb_stdin, gdb_stdout, gdb_stderr = Open3.popen3("gdb -silent '#{exe}' 2>&1")
 
 # Set an empty prompt
 gdb_stdin.puts('set prompt')
@@ -74,83 +70,87 @@ loop do
 end
 
 
-# Put it all together
-`otool -tV '#{exe}'`.lines.
-  each do |line|
+# This is how to decode/enhance a single line
+enhance_line = proc do |line|
+  
+  enhanced_line =
+  
+  # Decode C++ symbols
+  if line =~ /^__.+:$/
+    filt_stdin.puts line
+    got_line = filt_stdout.gets
     
-    enhanced_line =
+    if got_line != line
+      "#{got_line.chop}\n#{line}"
+    else
+      line
+    end
+  
+  # Decode C++ call and insert a comment before the line
+  elsif line =~ /calll\s+(__.+)$/
+    filt_stdin.puts $1
+    got_line = filt_stdout.gets
     
-    # Decode C++ symbols
-    if line =~ /^__.+:$/
-      filt_stdin.puts line
-      got_line = filt_stdout.gets
-      
-      if got_line != line
-        "#{got_line.chop}\n#{line}"
-      else
-        line
-      end
-    
-    # Decode C++ call and insert a comment before the line
-    elsif line =~ /calll\s+(__.+)$/
-      filt_stdin.puts $1
-      got_line = filt_stdout.gets
-      
-      if got_line.chop != $1
-        "; #{got_line.chop}\n#{line}"
-      else
-        line
-      end
-      
-    # This is how string references usually look like
-    elsif line =~ /\$(0x[0-9a-f]{8})/
-      addr = $1
-      
-      gdb_stdin.puts "x /x (#{addr}+4)"
-      gdb_says = gdb_stdout.gets
-      
-      # $stderr.puts addr
-      # $stderr.puts gdb_says
-      
-      # This seems to be the signature for a string :>
-      if gdb_says =~ /0x000007c8$/
-        gdb_stdin.puts "x /s *(#{addr}+8)"
-        gdb_says = gdb_stdout.gets
-        
-        # $stderr.puts gdb_says
-        
-        if gdb_says =~ /\>:\s+(".*"(\.\.\.)?)$/
-          "#{line.chop} ; #{$1}\n"
-        else
-          "#{line.chop} ; (gdb) #{gdb_says}\n"
-        end
-        
-      else
-        # "#{line.chop} ;; !str: \"#{gdb_says.chop}\" (#{addr})\n"
-        line
-        
-      end
-    
-    # This is the usual pattern for a class or method reference
-    elsif line =~ /movl.+0x([0-9a-f]{8})/
-      key = $1.to_sym
-      
-      attach = if classes[key]
-        " ; #{classes[key]}"
-      elsif methods[key]
-        " ; -[#{methods[key]}]"
-      else
-        ''
-      end
-      
-      line.chop + attach + "\n"
-      
+    if got_line.chop != $1
+      "; #{got_line.chop}\n#{line}"
     else
       line
     end
     
-    puts enhanced_line
+  # This is how string references usually look like
+  elsif line =~ /\$(0x[0-9a-f]{8})/
+    addr = $1
+    
+    gdb_stdin.puts "x /x (#{addr}+4)"
+    gdb_says = gdb_stdout.gets
+    
+    # $stderr.puts addr
+    # $stderr.puts gdb_says
+    
+    # This seems to be the signature for a string :>
+    if gdb_says =~ /0x000007c8$/
+      gdb_stdin.puts "x /s *(#{addr}+8)"
+      gdb_says = gdb_stdout.gets
+      
+      # $stderr.puts gdb_says
+      
+      if gdb_says =~ /\>:\s+(".*"(\.\.\.)?)$/
+        "#{line.chop} ; #{$1}\n"
+      else
+        "#{line.chop} ; (gdb) #{gdb_says}\n"
+      end
+      
+    else
+      # "#{line.chop} ;; !str: \"#{gdb_says.chop}\" (#{addr})\n"
+      line
+      
+    end
+  
+  # This is the usual pattern for a class or method reference
+  elsif line =~ /movl.+0x([0-9a-f]{8})/
+    key = $1.to_sym
+    
+    attach = if classes[key]
+      " ; #{classes[key]}"
+    elsif methods[key]
+      " ; [#{methods[key]}]"
+    else
+      ''
+    end
+    
+    line.chop + attach + "\n"
+    
+  else
+    line
   end
+  
+  puts enhanced_line
+  
+end
+
+
+# Put it all together
+`otool -tV '#{exe}'`.lines.each &enhance_line
 
 
 filt_stdin.close
